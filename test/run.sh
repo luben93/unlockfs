@@ -80,4 +80,18 @@ mv "$f.bak" "$f"
 echo "10. read-only"
 (echo x > "$T/mnt/repo1/.env") 2>/dev/null && bad "write succeeded" || ok "write refused"
 
+echo "11. protect: store, verify through the mount, back up, symlink; refuse git-tracked files"
+mkdir -p "$T/proj"; echo "protect-me-$$" > "$T/proj/.env"; echo "tracked-$$" > "$T/proj/tracked.env"
+( cd "$T/proj" && git init -q . && git add tracked.env && git -c user.email=t@t -c user.name=t commit -qm x ) >/dev/null 2>&1
+answer approve; ./unlockfs-test lock >/dev/null; sleep 1
+export UNLOCKFS_MOUNT=$T/mnt
+out=$(HOME=$T/fakehome ./unlockfs-test protect --root "$T" "$T/proj/.env" "$T/proj/tracked.env" 2>&1)
+case "$out" in *"protected"*) ok "protect reports success";; *) bad "protect output: $out";; esac
+[ -L "$T/proj/.env" ] && ok "original replaced by symlink" || bad "no symlink"
+chk "content via symlink" "$(cat "$T/proj/.env")" "protect-me-$$"
+chk "backup holds the original" "$(cat "$T/fakehome/.unlockfs/backup/proj/.env" 2>/dev/null)" "protect-me-$$"
+[ ! -L "$T/proj/tracked.env" ] && ok "git-tracked file left alone" || bad "tracked file was linked"
+chk "list shows protected key" "$(./unlockfs-test list | grep -c '^/proj/.env$')" 1
+./unlockfs-test rm /proj/.env >/dev/null; chk "rm removes key" "$(./unlockfs-test list | grep -c '^/proj/.env$')" 0
+
 echo; echo "passed=$pass failed=$failn"; [ $failn -eq 0 ]

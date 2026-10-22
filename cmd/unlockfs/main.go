@@ -206,34 +206,19 @@ func mountOpts() []string {
 
 func main() {
 	if len(os.Args) < 2 {
-		die("usage: unlockfs serve <mountpoint> | put <srcfile> <relpath> | lock")
+		die("usage: unlockfs serve <mountpoint> | protect <file>... | put <srcfile> <key> | list | rm <key> | lock | version")
 	}
 	switch os.Args[1] {
 	case "put":
-		if len(os.Args) != 4 {
-			die("usage: unlockfs put <srcfile> <relpath>")
-		}
-		key, err := platform.LoadOrCreateKey(storeEmpty())
-		if err != nil {
-			die("key: %v", err)
-		}
-		plain, err := os.ReadFile(os.Args[2])
-		if err != nil {
-			die("%v", err)
-		}
-		rel := "/" + strings.TrimPrefix(os.Args[3], "/")
-		blob, err := store.Seal(key, plain)
-		if err != nil {
-			die("%v", err)
-		}
-		dest := encPath(rel)
-		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
-			die("%v", err)
-		}
-		if err := os.WriteFile(dest, blob, 0o600); err != nil {
-			die("%v", err)
-		}
-		fmt.Printf("stored %s (%d bytes)\n", rel, len(plain))
+		cmdPut(os.Args[2:])
+	case "list":
+		cmdList()
+	case "rm":
+		cmdRm(os.Args[2:])
+	case "protect":
+		cmdProtect(os.Args[2:])
+	case "version", "--version":
+		fmt.Println("unlockfs", version)
 	case "lock":
 		b, err := os.ReadFile(pidFile)
 		pid, err2 := strconv.Atoi(strings.TrimSpace(string(b)))
