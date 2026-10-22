@@ -4,7 +4,6 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 T=$PWD/test/.run-touchid; rm -rf "$T"; mkdir -p "$T/mnt" "$T/store"
 export UNLOCKFS_STORE=$T/store UNLOCKFS_KEYFILE=$T/key UNLOCKFS_PIDFILE=$T/pid UNLOCKFS_TTL=60
-export UNLOCKFS_REASON="unlockfs TEST: approve to read a fake file"
 echo "fake-touchid-test-secret" > "$T/fake.txt"
 ./unlockfs-test put "$T/fake.txt" /demo/fake.txt
 ./unlockfs-test serve "$T/mnt" > "$T/daemon.log" 2>&1 & DPID=$!

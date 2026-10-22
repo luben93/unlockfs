@@ -35,6 +35,9 @@ echo "3. first read prompts once, content correct"
 chk "content" "$(cat "$T/mnt/repo1/.env")" "$(cat "$T/a.env")"
 chk "prompts after first read" "$(prompts)" 1
 
+msg=$(sed -n 1p "$T/ctl/prompts.log")
+case "$msg" in *"ALL 2 protected files"*"for 5s"*"repo1/.env"*) ok "prompt text names scope, duration and file";; *) bad "prompt text: $msg";; esac
+
 echo "4. grant cached (ssh-agent style): more reads, other file, no new prompt"
 cat "$T/mnt/repo1/.env" >/dev/null; cat "$T/mnt/repo2/src/application-local.yaml" >/dev/null
 chk "prompts still 1" "$(prompts)" 1

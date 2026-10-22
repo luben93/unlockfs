@@ -1,4 +1,0 @@
-module CFuse [system] {
-  header "shim.h"
-  export *
-}
