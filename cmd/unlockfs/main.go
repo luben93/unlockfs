@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -193,7 +194,10 @@ func (f *fs) Release(path string, fh uint64) int {
 
 // mountOpts returns the FUSE mount options; UNLOCKFS_FUSE_OPTS adds comma-separated extras.
 func mountOpts() []string {
-	o := []string{"-o", "volname=unlockfs"}
+	var o []string
+	if runtime.GOOS == "darwin" {
+		o = []string{"-o", "volname=unlockfs"}
+	}
 	if x := os.Getenv("UNLOCKFS_FUSE_OPTS"); x != "" {
 		o = append(o, "-o", x)
 	}
