@@ -9,7 +9,7 @@ The owner has explicitly allowed agents to work on this repo's git remote:
 - Never rewrite history that is already pushed (no force-push, no amend of pushed commits); add a new commit instead.
 - Opening a draft pull request for a pushed branch is fine; marking it ready or merging is the owner's action.
 - End commit messages with the attribution trailer the harness provides.
-- Before pushing: `make test` must pass (go vet, unit tests, 28 integration checks); also run `make test-linux` (Debian container, real libfuse) when touching platform or FUSE code.
+- Before pushing: `make test` must pass (go vet, unit tests, 30 integration checks); also run `make test-linux` (Debian container, real libfuse) when touching platform or FUSE code.
 
 This grant covers this repository only.
 

@@ -96,6 +96,7 @@ Other commands:
 | `unlockfs put <file> <key>` | add or replace one file without touching the original |
 | `unlockfs list` | list stored keys (names only) |
 | `unlockfs rm <key>` | remove a stored file |
+| `unlockfs doctor` | check that the key loads and every stored file decrypts (prints no content) |
 | `unlockfs lock` | revoke the current grant now |
 | `unlockfs version` | print the version |
 
@@ -130,7 +131,7 @@ unlockfs is a **leak preventer and speed bump, not a sandbox**.
 ## Development
 
 ```sh
-make test          # go vet, unit tests, 28 integration checks on a real FUSE mount with fake auth
+make test          # go vet, unit tests, 30 integration checks on a real FUSE mount with fake auth
 make test-linux    # the same on Linux in a Docker container (needs /dev/fuse), also from macOS via colima
 ./test/touchid-manual.sh   # real prompt check on macOS, you tap once
 go run ./cmd/platformcheck # exercises key store, prompt and lock detection without FUSE

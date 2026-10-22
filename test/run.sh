@@ -96,4 +96,8 @@ chk "--keep-backup keeps a copy on request" "$(cat "$T/fakehome/.unlockfs/backup
 chk "list shows protected key" "$(./unlockfs-test list | grep -c '^/proj/.env$')" 1
 ./unlockfs-test rm /proj/.env >/dev/null; chk "rm removes key" "$(./unlockfs-test list | grep -c '^/proj/.env$')" 0
 
+echo "12. doctor verifies every stored file without printing content"
+out=$(./unlockfs-test doctor 2>&1); case "$out" in *"failed: 0"*) ok "doctor: all files decrypt";; *) bad "doctor: $out";; esac
+case "$out" in *"protect-me"*|*"hunter2"*|*"fake-secret"*) bad "doctor leaked content";; *) ok "doctor prints no content";; esac
+
 echo; echo "passed=$pass failed=$failn"; [ $failn -eq 0 ]

@@ -206,7 +206,7 @@ func mountOpts() []string {
 
 func main() {
 	if len(os.Args) < 2 {
-		die("usage: unlockfs serve <mountpoint> | protect <file>... | put <srcfile> <key> | list | rm <key> | lock | version")
+		die("usage: unlockfs serve <mountpoint> | protect <file>... | put <srcfile> <key> | list | rm <key> | doctor | lock | version")
 	}
 	switch os.Args[1] {
 	case "put":
@@ -217,6 +217,8 @@ func main() {
 		cmdRm(os.Args[2:])
 	case "protect":
 		cmdProtect(os.Args[2:])
+	case "doctor":
+		cmdDoctor()
 	case "version", "--version":
 		fmt.Println("unlockfs", version)
 	case "lock":

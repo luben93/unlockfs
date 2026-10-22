@@ -181,3 +181,41 @@ func cmdProtect(args []string) {
 		fmt.Printf("protected %s -> %s\n", f, target)
 	}
 }
+
+// cmdDoctor checks that the key can be loaded and that every stored file authenticates and decrypts, without
+// printing any content. Useful after upgrades or when moving a store to another machine.
+func cmdDoctor() {
+	fmt.Printf("store: %s\n", storeDir)
+	n := countFiles()
+	fmt.Printf("files: %d\n", n)
+	if n == 0 {
+		fmt.Println("nothing to check")
+		return
+	}
+	k, err := platform.LoadOrCreateKey(false)
+	if err != nil {
+		die("key: %v", err)
+	}
+	fmt.Println("key: loaded from the key store")
+	ok, bad := 0, 0
+	filepath.WalkDir(storeDir, func(p string, e os.DirEntry, err error) error {
+		if err != nil || e.IsDir() || !strings.HasSuffix(p, ".enc") {
+			return nil
+		}
+		blob, rerr := os.ReadFile(p)
+		if rerr == nil {
+			_, rerr = store.Open(k, blob)
+		}
+		if rerr != nil {
+			bad++
+			fmt.Printf("FAIL %s: %v\n", strings.TrimSuffix(strings.TrimPrefix(p, storeDir), ".enc"), rerr)
+		} else {
+			ok++
+		}
+		return nil
+	})
+	fmt.Printf("decrypt ok: %d, failed: %d\n", ok, bad)
+	if bad > 0 {
+		os.Exit(1)
+	}
+}
