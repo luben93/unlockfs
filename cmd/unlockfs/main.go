@@ -75,13 +75,19 @@ func storeEmpty() bool { return countFiles() == 0 }
 
 func encPath(p string) string { return storeDir + p + ".enc" }
 
+// handle is plaintext obtained under grant generation gen; it is useless once that grant ends.
+type handle struct {
+	data []byte
+	gen  uint64
+}
+
 type fs struct {
 	fuse.FileSystemBase
 	key  []byte
 	gate *gate.Gate
 	mu   sync.Mutex
 	next uint64
-	open map[uint64][]byte
+	open map[uint64]handle
 }
 
 func (f *fs) Getattr(path string, st *fuse.Stat_t, fh uint64) int {
@@ -121,7 +127,8 @@ func (f *fs) Open(path string, flags int) (int, uint64) {
 	if flags&fuse.O_ACCMODE != fuse.O_RDONLY {
 		return -fuse.EROFS, ^uint64(0)
 	}
-	if !f.gate.Ensure(path) {
+	gen, granted := f.gate.Ensure(path)
+	if !granted {
 		return -fuse.EACCES, ^uint64(0)
 	}
 	plain, err := store.Open(f.key, blob)
@@ -130,20 +137,28 @@ func (f *fs) Open(path string, flags int) (int, uint64) {
 		return -fuse.EIO, ^uint64(0)
 	}
 	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.gate.Valid(gen) { // revoked between the prompt and now
+		zero(plain)
+		return -fuse.EACCES, ^uint64(0)
+	}
 	f.next++
-	h := f.next
-	f.open[h] = plain
-	f.mu.Unlock()
-	return 0, h
+	f.open[f.next] = handle{plain, gen}
+	return 0, f.next
 }
 
 func (f *fs) Read(path string, buf []byte, ofst int64, fh uint64) int {
 	f.mu.Lock()
-	data, ok := f.open[fh]
+	h, ok := f.open[fh]
 	f.mu.Unlock()
 	if !ok {
 		return -fuse.EBADF
 	}
+	if !f.gate.Valid(h.gen) { // grant expired or revoked: stop serving and forget the plaintext
+		f.dropHandles()
+		return -fuse.EACCES
+	}
+	data := h.data
 	if ofst >= int64(len(data)) {
 		return 0
 	}
@@ -153,25 +168,36 @@ func (f *fs) Read(path string, buf []byte, ofst int64, fh uint64) int {
 // dropHandles forgets all cached plaintext (zeroed first), so files opened under a revoked grant cannot keep being read.
 func (f *fs) dropHandles() {
 	f.mu.Lock()
-	for h, b := range f.open {
-		for i := range b {
-			b[i] = 0
-		}
-		delete(f.open, h)
+	for id, h := range f.open {
+		zero(h.data)
+		delete(f.open, id)
 	}
 	f.mu.Unlock()
 }
 
+func zero(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
 func (f *fs) Release(path string, fh uint64) int {
 	f.mu.Lock()
-	if b, ok := f.open[fh]; ok {
-		for i := range b {
-			b[i] = 0
-		}
+	if h, ok := f.open[fh]; ok {
+		zero(h.data)
 		delete(f.open, fh)
 	}
 	f.mu.Unlock()
 	return 0
+}
+
+// mountOpts returns the FUSE mount options; UNLOCKFS_FUSE_OPTS adds comma-separated extras.
+func mountOpts() []string {
+	o := []string{"-o", "volname=unlockfs"}
+	if x := os.Getenv("UNLOCKFS_FUSE_OPTS"); x != "" {
+		o = append(o, "-o", x)
+	}
+	return o
 }
 
 func main() {
@@ -233,11 +259,11 @@ func main() {
 			}
 		}()
 		go platform.WatchLock(context.Background(), g.Revoke)
-		fsys := &fs{key: key, gate: g, open: map[uint64][]byte{}}
+		fsys := &fs{key: key, gate: g, open: map[uint64]handle{}}
 		g.OnRevoke = fsys.dropHandles
 		host := fuse.NewFileSystemHost(fsys)
 		logf("serving %s at %s ttl=%s", storeDir, os.Args[2], humanDur(ttl))
-		if !host.Mount(os.Args[2], []string{"-o", "volname=unlockfs"}) {
+		if !host.Mount(os.Args[2], mountOpts()) {
 			die("mount failed")
 		}
 	default:

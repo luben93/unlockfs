@@ -47,6 +47,7 @@ unlockfs is a **speed bump and leak preventer, not a sandbox**.
 - The prompt is enforced by the daemon. The store key lives in the login keychain, readable by any process running as you. Malware running as you can read the key and store directly and skip the prompt.
 - On macOS, FUSE-T reports no caller PID, so a grant is global: anything running as you can read files while it is active. On Linux libfuse reports the PID, so per-program grants are possible but not implemented.
 - On Linux the key lives in the Secret Service or a 0600 file, readable by any process of your user without a prompt, so there the prompt only guards the mounted filesystem, not the store and key.
+- Handles opened under a grant stop working when it expires or is revoked, but the macOS NFS client (FUSE-T) may serve already-cached data for an open file from its own cache for a short time without asking the daemon. New opens always re-check the grant.
 - It does protect against: backups, archives and cloud syncs containing plaintext secrets; stolen disks; tools or agents that read files without you noticing outside a grant window; secrets pasted into transcripts by accident.
 - A Touch ID-bound key (Secure Enclave / data-protection keychain) would be stronger but needs a signed app with a provisioning profile; not implemented.
 
