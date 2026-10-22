@@ -104,10 +104,11 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-// cmdProtect stores files, verifies the copy through the mount (this triggers the prompt), moves the original to
-// ~/.unlockfs/backup and leaves a symlink into the mount. Git-tracked files are refused unless --force.
+// cmdProtect stores files, verifies the copy through the mount (this triggers the prompt), removes the plaintext
+// original and leaves a symlink into the mount. Git-tracked files are refused unless --force. No plaintext backup is
+// kept unless --keep-backup is given, because a plaintext copy defeats the purpose.
 func cmdProtect(args []string) {
-	root, force := home, false
+	root, force, keep := home, false, false
 	var files []string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -119,12 +120,14 @@ func cmdProtect(args []string) {
 			root = args[i]
 		case "--force":
 			force = true
+		case "--keep-backup":
+			keep = true
 		default:
 			files = append(files, args[i])
 		}
 	}
 	if len(files) == 0 {
-		die("usage: unlockfs protect [--root DIR] [--force] <file>...   (key = path relative to the root, default $HOME)")
+		die("usage: unlockfs protect [--root DIR] [--force] [--keep-backup] <file>...   (key = path relative to the root, default $HOME)")
 	}
 	root, _ = filepath.Abs(root)
 	for _, f := range files {
@@ -158,19 +161,23 @@ func cmdProtect(args []string) {
 		if err != nil || !bytes.Equal(orig, viaMount) {
 			die("%s: copy read through the mount does not match the original (%v); leaving the original in place", f, err)
 		}
-		backup := filepath.Join(home, ".unlockfs", "backup", rel)
-		if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
-			die("%v", err)
-		}
-		if err := copyFile(abs, backup); err != nil {
-			die("backup failed: %v", err)
+		backup := ""
+		if keep {
+			backup = filepath.Join(home, ".unlockfs", "backup", rel)
+			if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
+				die("%v", err)
+			}
+			if err := copyFile(abs, backup); err != nil {
+				die("backup failed: %v", err)
+			}
+			logf("WARNING: plaintext backup kept at %s; delete it once you are sure the link works", backup)
 		}
 		if err := os.Remove(abs); err != nil {
 			die("%v", err)
 		}
 		if err := os.Symlink(target, abs); err != nil {
-			die("symlink failed (original is in %s): %v", backup, err)
+			die("symlink failed after removing the original; the encrypted copy is in the store and readable via %s: %v", target, err)
 		}
-		fmt.Printf("protected %s -> %s (backup: %s)\n", f, target, backup)
+		fmt.Printf("protected %s -> %s\n", f, target)
 	}
 }
