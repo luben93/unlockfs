@@ -3,7 +3,7 @@ SIGN_ID ?= -
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS = -X main.version=$(VERSION)
 
-.PHONY: all test unit clean install unlockfs unlockfs-test
+.PHONY: all test test-linux unit clean install unlockfs unlockfs-test
 all: unlockfs
 
 unlockfs:
@@ -25,3 +25,6 @@ install: unlockfs
 
 clean:
 	rm -rf unlockfs unlockfs-test test/.run test/.run-touchid
+
+test-linux:
+	./test/linux-docker.sh

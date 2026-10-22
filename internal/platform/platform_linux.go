@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -105,8 +106,11 @@ func systemKey(allowCreate bool) ([]byte, error) {
 
 func screenLocked() bool {
 	id := os.Getenv("XDG_SESSION_ID")
-	if id == "" {
-		return false
+	if id == "" { // e.g. a systemd user service: ask logind for the user's graphical session
+		out, err := exec.Command("loginctl", "show-user", strconv.Itoa(os.Getuid()), "-p", "Display", "--value").Output()
+		if id = strings.TrimSpace(string(out)); err != nil || id == "" {
+			return false
+		}
 	}
 	out, err := exec.Command("loginctl", "show-session", id, "-p", "LockedHint", "--value").Output()
 	return err == nil && strings.TrimSpace(string(out)) == "yes"
