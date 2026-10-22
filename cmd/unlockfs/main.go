@@ -70,6 +70,9 @@ func promptText(ttl time.Duration, detail string) string {
 		countFiles(), humanDur(ttl), strings.TrimPrefix(detail, "/"))
 }
 
+// storeEmpty reports whether the store holds no encrypted files yet; only then may a new key be created.
+func storeEmpty() bool { return countFiles() == 0 }
+
 func encPath(p string) string { return storeDir + p + ".enc" }
 
 type fs struct {
@@ -147,9 +150,26 @@ func (f *fs) Read(path string, buf []byte, ofst int64, fh uint64) int {
 	return copy(buf, data[ofst:])
 }
 
+// dropHandles forgets all cached plaintext (zeroed first), so files opened under a revoked grant cannot keep being read.
+func (f *fs) dropHandles() {
+	f.mu.Lock()
+	for h, b := range f.open {
+		for i := range b {
+			b[i] = 0
+		}
+		delete(f.open, h)
+	}
+	f.mu.Unlock()
+}
+
 func (f *fs) Release(path string, fh uint64) int {
 	f.mu.Lock()
-	delete(f.open, fh)
+	if b, ok := f.open[fh]; ok {
+		for i := range b {
+			b[i] = 0
+		}
+		delete(f.open, fh)
+	}
 	f.mu.Unlock()
 	return 0
 }
@@ -163,7 +183,7 @@ func main() {
 		if len(os.Args) != 4 {
 			die("usage: unlockfs put <srcfile> <relpath>")
 		}
-		key, err := platform.LoadOrCreateKey()
+		key, err := platform.LoadOrCreateKey(storeEmpty())
 		if err != nil {
 			die("key: %v", err)
 		}
@@ -196,7 +216,7 @@ func main() {
 		if len(os.Args) < 3 {
 			die("usage: unlockfs serve <mountpoint>")
 		}
-		key, err := platform.LoadOrCreateKey()
+		key, err := platform.LoadOrCreateKey(storeEmpty())
 		if err != nil {
 			die("key: %v", err)
 		}
@@ -213,7 +233,9 @@ func main() {
 			}
 		}()
 		go platform.WatchLock(context.Background(), g.Revoke)
-		host := fuse.NewFileSystemHost(&fs{key: key, gate: g, open: map[uint64][]byte{}})
+		fsys := &fs{key: key, gate: g, open: map[uint64][]byte{}}
+		g.OnRevoke = fsys.dropHandles
+		host := fuse.NewFileSystemHost(fsys)
 		logf("serving %s at %s ttl=%s", storeDir, os.Args[2], humanDur(ttl))
 		if !host.Mount(os.Args[2], []string{"-o", "volname=unlockfs"}) {
 			die("mount failed")

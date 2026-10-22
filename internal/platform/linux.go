@@ -1,6 +1,9 @@
 //go:build linux
 
 // EXPERIMENTAL and untested: written against the fprintd and libsecret CLIs, not run on a Linux machine.
+//
+// Limits: the key sits in the Secret Service or a 0600 file, readable by any process of the same user without a
+// prompt, so on Linux the prompt only guards the filesystem, not the store and key; it is a leak preventer, not a sandbox.
 package platform
 
 import (
@@ -18,25 +21,36 @@ import (
 // Typical override for fingerprint with password fallback: a script calling fprintd-verify, then zenity --password + pamtester.
 func systemPrompt(reason string) bool {
 	cmd := os.Getenv("UNLOCKFS_PROMPT_CMD")
-	var c *exec.Cmd
-	if cmd != "" {
-		c = exec.Command("sh", "-c", cmd)
-	} else {
-		c = exec.Command("fprintd-verify")
+	if cmd != "" { // custom command: exit status 0 means approved
+		c := exec.Command("sh", "-c", cmd)
+		c.Env = append(os.Environ(), "UNLOCKFS_REASON="+reason)
+		return c.Run() == nil
 	}
-	c.Env = append(os.Environ(), "UNLOCKFS_REASON="+reason)
-	return c.Run() == nil
+	// fprintd-verify: require the explicit match verdict, not just a zero exit status
+	out, err := exec.Command("fprintd-verify").CombinedOutput()
+	return err == nil && bytes.Contains(out, []byte("verify-match"))
 }
 
 func keyFile() string { h, _ := os.UserHomeDir(); return filepath.Join(h, ".unlockfs", "key") }
 
-// systemKey uses the Secret Service (secret-tool) and falls back to a 0600 file when it is unavailable.
-func systemKey() ([]byte, error) {
+// systemKey reads the key from the Secret Service (secret-tool) or a 0600 file. It creates a key only when
+// allowCreate is true; "lookup failed" and "not found" are different cases, and only a clean not-found may create.
+func systemKey(allowCreate bool) ([]byte, error) {
 	if _, err := exec.LookPath("secret-tool"); err == nil {
-		if out, err := exec.Command("secret-tool", "lookup", "service", "unlockfs", "account", "store-key").Output(); err == nil {
-			if k, err := hex.DecodeString(strings.TrimSpace(string(out))); err == nil && len(k) == 32 {
+		out, err := exec.Command("secret-tool", "lookup", "service", "unlockfs", "account", "store-key").Output()
+		if err == nil {
+			if k, derr := hex.DecodeString(strings.TrimSpace(string(out))); derr == nil && len(k) == 32 {
 				return k, nil
 			}
+			return nil, errors.New("secret-tool returned a malformed key; refusing to replace it")
+		}
+		var ee *exec.ExitError
+		notFound := errors.As(err, &ee) && ee.ExitCode() == 1 && len(out) == 0
+		if !notFound {
+			return nil, errors.New("secret-tool lookup failed (keyring locked or unavailable?): " + err.Error())
+		}
+		if !allowCreate {
+			return nil, errors.New("no key in the Secret Service but the store is not empty: refusing to create a new key")
 		}
 		k := make([]byte, 32)
 		if _, err := rand.Read(k); err != nil {
@@ -44,12 +58,21 @@ func systemKey() ([]byte, error) {
 		}
 		c := exec.Command("secret-tool", "store", "--label=unlockfs", "service", "unlockfs", "account", "store-key")
 		c.Stdin = bytes.NewReader([]byte(hex.EncodeToString(k)))
-		if c.Run() == nil {
-			return k, nil
+		if err := c.Run(); err != nil {
+			return nil, errors.New("cannot store key with secret-tool: " + err.Error())
 		}
+		return k, nil
 	}
-	if b, err := os.ReadFile(keyFile()); err == nil && len(b) == 32 {
-		return b, nil
+	if b, err := os.ReadFile(keyFile()); err == nil {
+		if len(b) == 32 {
+			return b, nil
+		}
+		return nil, errors.New(keyFile() + " is malformed; refusing to replace it")
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	if !allowCreate {
+		return nil, errors.New("no key file but the store is not empty: refusing to create a new key")
 	}
 	k := make([]byte, 32)
 	if _, err := rand.Read(k); err != nil {
@@ -59,7 +82,7 @@ func systemKey() ([]byte, error) {
 		return nil, err
 	}
 	if err := os.WriteFile(keyFile(), k, 0o600); err != nil {
-		return nil, errors.New("cannot store key: " + err.Error())
+		return nil, err
 	}
 	return k, nil
 }

@@ -14,6 +14,8 @@ type Gate struct {
 	grantWall       time.Time // wall clock copy, stripped of the monotonic reading
 	denyUntil       time.Time
 	Log             func(format string, args ...any)
+	// OnRevoke is called after a revoke, e.g. to drop cached plaintext of open files
+	OnRevoke func()
 }
 
 func New(ttl, denyWindow time.Duration, prompt func(detail string) bool) *Gate {
@@ -49,4 +51,7 @@ func (g *Gate) Revoke(why string) {
 	g.grantUntil, g.grantWall, g.denyUntil = time.Time{}, time.Time{}, time.Time{}
 	g.mu.Unlock()
 	g.Log("grant revoked (%s)", why)
+	if g.OnRevoke != nil {
+		g.OnRevoke()
+	}
 }

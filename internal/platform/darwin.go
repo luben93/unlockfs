@@ -25,10 +25,13 @@ func systemPrompt(reason string) bool {
 	return C.ul_prompt(c) == 1
 }
 
-func systemKey() ([]byte, error) {
+func systemKey(allowCreate bool) ([]byte, error) {
 	k := make([]byte, 32)
 	if C.ul_key_get((*C.uchar)(unsafe.Pointer(&k[0]))) == 0 {
 		return k, nil
+	}
+	if !allowCreate {
+		return nil, errors.New("store key not found or not readable in the keychain, and the store is not empty: refusing to create a new key")
 	}
 	if _, err := rand.Read(k); err != nil {
 		return nil, err

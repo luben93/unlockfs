@@ -22,14 +22,16 @@ func Prompt(reason string) bool {
 	return systemPrompt(reason)
 }
 
-// LoadOrCreateKey returns the 32-byte store key, creating and saving it on first use.
-func LoadOrCreateKey() ([]byte, error) {
+// LoadOrCreateKey returns the 32-byte store key. A new key is created only if allowCreate is true (the store is
+// empty); otherwise a missing or unreadable key is an error, so a flaky key store can never replace the key of an
+// existing store and make its files undecryptable.
+func LoadOrCreateKey(allowCreate bool) ([]byte, error) {
 	if keyOverride != nil {
 		if k, handled, err := keyOverride(); handled {
 			return k, err
 		}
 	}
-	return systemKey()
+	return systemKey(allowCreate)
 }
 
 // WatchLock calls revoke when the screen locks or the machine sleeps, until ctx ends.

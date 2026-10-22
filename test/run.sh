@@ -78,4 +78,14 @@ mv "$f.bak" "$f"
 echo "10. read-only"
 (echo x > "$T/mnt/repo1/.env") 2>/dev/null && bad "write succeeded" || ok "write refused"
 
+echo "11. lock drops files that are already open"
+answer approve; ./unlockfs-test lock >/dev/null; sleep 1
+cat "$T/mnt/repo1/.env" >/dev/null 2>&1   # fresh grant
+exec 3< "$T/mnt/repo1/.env"
+chk "control: open handle readable before lock" "$(head -c 5 <&3)" "$(head -c 5 "$T/a.env")"
+exec 3<&-; exec 3< "$T/mnt/repo1/.env"
+./unlockfs-test lock >/dev/null; sleep 1
+if [ -z "$(cat <&3 2>/dev/null)" ]; then ok "open handle yields nothing after lock"; else bad "open handle still readable after lock"; fi
+exec 3<&-
+
 echo; echo "passed=$pass failed=$failn"; [ $failn -eq 0 ]
