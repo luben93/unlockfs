@@ -8,6 +8,7 @@ package platform
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -15,20 +16,35 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // systemPrompt runs UNLOCKFS_PROMPT_CMD (via sh -c) if set, else fprintd-verify. Exit status 0 means approved.
 // Typical override for fingerprint with password fallback: a script calling fprintd-verify, then zenity --password + pamtester.
 func systemPrompt(reason string) bool {
 	cmd := os.Getenv("UNLOCKFS_PROMPT_CMD")
+	timeout := 60 * time.Second // an unanswered prompt must not block the gate forever
+	if d, err := time.ParseDuration(os.Getenv("UNLOCKFS_PROMPT_TIMEOUT")); err == nil {
+		timeout = d
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	if cmd != "" { // custom command: exit status 0 means approved
-		c := exec.Command("sh", "-c", cmd)
+		c := exec.CommandContext(ctx, "sh", "-c", cmd)
 		c.Env = append(os.Environ(), "UNLOCKFS_REASON="+reason)
 		return c.Run() == nil
 	}
 	// fprintd-verify: require the explicit match verdict, not just a zero exit status
-	out, err := exec.Command("fprintd-verify").CombinedOutput()
+	out, err := exec.CommandContext(ctx, "fprintd-verify").CombinedOutput()
 	return err == nil && bytes.Contains(out, []byte("verify-match"))
+}
+
+// keyService names the Secret Service entry; overridable so tests never touch the real one.
+func keyService() string {
+	if v := os.Getenv("UNLOCKFS_KEY_SERVICE"); v != "" {
+		return v
+	}
+	return "unlockfs"
 }
 
 func keyFile() string { h, _ := os.UserHomeDir(); return filepath.Join(h, ".unlockfs", "key") }
@@ -37,7 +53,7 @@ func keyFile() string { h, _ := os.UserHomeDir(); return filepath.Join(h, ".unlo
 // allowCreate is true; "lookup failed" and "not found" are different cases, and only a clean not-found may create.
 func systemKey(allowCreate bool) ([]byte, error) {
 	if _, err := exec.LookPath("secret-tool"); err == nil {
-		out, err := exec.Command("secret-tool", "lookup", "service", "unlockfs", "account", "store-key").Output()
+		out, err := exec.Command("secret-tool", "lookup", "service", keyService(), "account", "store-key").Output()
 		if err == nil {
 			if k, derr := hex.DecodeString(strings.TrimSpace(string(out))); derr == nil && len(k) == 32 {
 				return k, nil
@@ -56,7 +72,7 @@ func systemKey(allowCreate bool) ([]byte, error) {
 		if _, err := rand.Read(k); err != nil {
 			return nil, err
 		}
-		c := exec.Command("secret-tool", "store", "--label=unlockfs", "service", "unlockfs", "account", "store-key")
+		c := exec.Command("secret-tool", "store", "--label=unlockfs", "service", keyService(), "account", "store-key")
 		c.Stdin = bytes.NewReader([]byte(hex.EncodeToString(k)))
 		if err := c.Run(); err != nil {
 			return nil, errors.New("cannot store key with secret-tool: " + err.Error())

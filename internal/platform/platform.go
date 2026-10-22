@@ -58,3 +58,6 @@ func WatchLock(ctx context.Context, revoke func(why string)) {
 		}
 	}
 }
+
+// ScreenLocked reports whether the session is currently locked.
+func ScreenLocked() bool { return screenLocked() }

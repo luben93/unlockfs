@@ -51,7 +51,7 @@ unlockfs is a **speed bump and leak preventer, not a sandbox**.
 - It does protect against: backups, archives and cloud syncs containing plaintext secrets; stolen disks; tools or agents that read files without you noticing outside a grant window; secrets pasted into transcripts by accident.
 - A Touch ID-bound key (Secure Enclave / data-protection keychain) would be stronger but needs a signed app with a provisioning profile; not implemented.
 
-Status: young project, tested on one macOS machine; Linux support compiles in the platform package but has never run. Read-only by design; edit by running `put` again. Spotlight or an IDE indexer that opens file contents can trigger a prompt.
+Status: young project. macOS is tested end to end (Touch ID prompt, mount, 20 integration checks). On Linux only the platform layer has run, on real hardware (Arch, fprintd with an Elan fingerprint sensor, Secret Service): `go run ./cmd/platformcheck` verified key creation and read-back and that an unanswered fingerprint prompt denies. A positive fingerprint match and the FUSE mount on Linux are untested; cgofuse needs libfuse 2 headers (`/usr/include/fuse`), and some distros ship only libfuse 3. Read-only by design; edit by running `put` again. Spotlight or an IDE indexer that opens file contents can trigger a prompt.
 
 ## Test mode
 
