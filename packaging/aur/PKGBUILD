@@ -1,0 +1,40 @@
+# Maintainer: Your Name <you@example.com>
+pkgname=unlockfs
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Read-only FUSE filesystem that serves encrypted files behind a fingerprint or password prompt, asked once like ssh-agent'
+arch=('x86_64' 'aarch64')
+url='https://github.com/luben93/unlockfs'
+license=('MIT')
+depends=('fuse2' 'libsecret')
+optdepends=('fprintd: fingerprint prompt (fprintd-verify)')
+makedepends=('go' 'git')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP') # run `updpkgsums` once the v$pkgver tag exists
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export GOFLAGS="-modcacherw"
+  go mod download
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export CGO_ENABLED=1 CGO_CPPFLAGS="${CPPFLAGS}" CGO_CFLAGS="${CFLAGS}" CGO_CXXFLAGS="${CXXFLAGS}" CGO_LDFLAGS="${LDFLAGS}"
+  export GOFLAGS="-buildmode=pie -trimpath -mod=readonly -modcacherw"
+  go build -ldflags "-linkmode external -extldflags \"${LDFLAGS}\" -X main.version=${pkgver}" -o unlockfs ./cmd/unlockfs
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  go vet ./...
+  go test ./internal/...
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 unlockfs "$pkgdir/usr/bin/unlockfs"
+  install -Dm644 packaging/systemd/unlockfs.service "$pkgdir/usr/lib/systemd/user/unlockfs.service"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

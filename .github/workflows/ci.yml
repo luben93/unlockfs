@@ -1,0 +1,30 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Install libfuse 2
+        run: sudo apt-get update && sudo apt-get install -y libfuse-dev fuse
+      - name: Test (vet, unit, integration on a real FUSE mount, fake auth)
+        run: make test
+
+  macos:
+    runs-on: macos-latest
+    continue-on-error: true   # needs FUSE-T installed on the runner; best effort
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Install FUSE-T
+        run: brew install --cask macos-fuse-t/homebrew-cask/fuse-t
+      - name: Build and unit tests
+        run: make unlockfs-test && go vet ./... && go test ./internal/...

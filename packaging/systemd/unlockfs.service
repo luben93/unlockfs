@@ -1,0 +1,15 @@
+[Unit]
+Description=unlockfs: encrypted files behind a fingerprint prompt
+Documentation=https://github.com/luben93/unlockfs
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/mkdir -p %h/.unlockfs/mnt
+ExecStart=/usr/bin/unlockfs serve %h/.unlockfs/mnt
+ExecStop=/usr/bin/fusermount -u %h/.unlockfs/mnt
+Restart=on-failure
+# Optional: your own approval command (exit 0 = approved) instead of fprintd-verify
+#Environment=UNLOCKFS_PROMPT_CMD=/usr/local/bin/my-approval
+
+[Install]
+WantedBy=default.target

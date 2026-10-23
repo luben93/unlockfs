@@ -6,6 +6,8 @@ T=$PWD/test/.run; rm -rf "$T"; mkdir -p "$T/ctl" "$T/mnt" "$T/store" "$T/links"
 export UNLOCKFS_AUTH=test UNLOCKFS_TEST_DIR=$T/ctl UNLOCKFS_STORE=$T/store UNLOCKFS_PIDFILE=$T/pid
 export UNLOCKFS_TTL=5 UNLOCKFS_DENY_SECS=3 UNLOCKFS_TEST_DELAY=1
 pass=0; failn=0
+# portability: BSD (macOS) vs GNU (Linux) tools
+if [ "$(uname)" = Darwin ]; then fsize() { stat -f %z "$1"; }; unmnt() { umount "$1"; }; else fsize() { stat -c %s "$1"; }; unmnt() { fusermount -u "$1" 2>/dev/null || fusermount3 -u "$1"; }; fi
 ok()   { pass=$((pass+1)); echo "  PASS $1"; }
 bad()  { failn=$((failn+1)); echo "  FAIL $1"; }
 chk()  { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (got '$2', want '$3')"; fi; }
@@ -18,7 +20,7 @@ echo "fake-secret-AAAA-$$" > "$T/a.env"; printf 'pw=hunter2-BBBB\nline2\n' > "$T
 DPID=$!
 for i in 1 2 3 4 5 6 7 8 9 10; do mount | grep -q "$T/mnt" && break; sleep 1; done
 mount | grep -q "$T/mnt" || { echo "mount failed"; cat "$T/daemon.log"; exit 1; }
-cleanup() { umount "$T/mnt" 2>/dev/null; sleep 1; kill -0 $DPID 2>/dev/null && kill $DPID 2>/dev/null; }
+cleanup() { unmnt "$T/mnt" 2>/dev/null; sleep 1; kill -0 $DPID 2>/dev/null && kill $DPID 2>/dev/null; }
 trap cleanup EXIT
 
 echo "1. browsing never prompts"
@@ -26,7 +28,7 @@ answer approve
 ls -R "$T/mnt" >/dev/null 2>&1; stat "$T/mnt/repo1/.env" >/dev/null 2>&1
 chk "ls/stat prompts" "$(prompts)" 0
 chk "listing shows files" "$(ls -A "$T/mnt/repo1")" ".env"
-chk "stat size = plaintext size" "$(stat -f %z "$T/mnt/repo1/.env")" "$(stat -f %z "$T/a.env")"
+chk "stat size = plaintext size" "$(fsize "$T/mnt/repo1/.env")" "$(fsize "$T/a.env")"
 
 echo "2. encrypted at rest"
 if grep -rq "fake-secret-AAAA\|hunter2" "$T/store"; then bad "plaintext found in store"; else ok "no plaintext in store"; fi
@@ -34,6 +36,9 @@ if grep -rq "fake-secret-AAAA\|hunter2" "$T/store"; then bad "plaintext found in
 echo "3. first read prompts once, content correct"
 chk "content" "$(cat "$T/mnt/repo1/.env")" "$(cat "$T/a.env")"
 chk "prompts after first read" "$(prompts)" 1
+
+msg=$(sed -n 1p "$T/ctl/prompts.log")
+case "$msg" in *"ALL 2 protected files"*"for 5s"*"repo1/.env"*) ok "prompt text names scope, duration and file";; *) bad "prompt text: $msg";; esac
 
 echo "4. grant cached (ssh-agent style): more reads, other file, no new prompt"
 cat "$T/mnt/repo1/.env" >/dev/null; cat "$T/mnt/repo2/src/application-local.yaml" >/dev/null
@@ -74,5 +79,25 @@ mv "$f.bak" "$f"
 
 echo "10. read-only"
 (echo x > "$T/mnt/repo1/.env") 2>/dev/null && bad "write succeeded" || ok "write refused"
+
+echo "11. protect: store, verify through the mount, back up, symlink; refuse git-tracked files"
+mkdir -p "$T/proj"; echo "protect-me-$$" > "$T/proj/.env"; echo "tracked-$$" > "$T/proj/tracked.env"; echo "keep-$$" > "$T/proj/keep.env"
+( cd "$T/proj" && git init -q . && git add tracked.env && git -c user.email=t@t -c user.name=t commit -qm x ) >/dev/null 2>&1
+answer approve; ./unlockfs-test lock >/dev/null; sleep 1
+export UNLOCKFS_MOUNT=$T/mnt
+out=$(HOME=$T/fakehome ./unlockfs-test protect --root "$T" "$T/proj/.env" "$T/proj/tracked.env" 2>&1)
+case "$out" in *"protected"*) ok "protect reports success";; *) bad "protect output: $out";; esac
+[ -L "$T/proj/.env" ] && ok "original replaced by symlink" || bad "no symlink"
+chk "content via symlink" "$(cat "$T/proj/.env")" "protect-me-$$"
+[ ! -e "$T/fakehome/.unlockfs/backup/proj/.env" ] && ok "no plaintext backup by default" || bad "plaintext backup left behind"
+HOME=$T/fakehome ./unlockfs-test protect --root "$T" --keep-backup "$T/proj/keep.env" >/dev/null 2>&1
+chk "--keep-backup keeps a copy on request" "$(cat "$T/fakehome/.unlockfs/backup/proj/keep.env" 2>/dev/null)" "keep-$$"
+[ ! -L "$T/proj/tracked.env" ] && ok "git-tracked file left alone" || bad "tracked file was linked"
+chk "list shows protected key" "$(./unlockfs-test list | grep -c '^/proj/.env$')" 1
+./unlockfs-test rm /proj/.env >/dev/null; chk "rm removes key" "$(./unlockfs-test list | grep -c '^/proj/.env$')" 0
+
+echo "12. doctor verifies every stored file without printing content"
+out=$(./unlockfs-test doctor 2>&1); case "$out" in *"failed: 0"*) ok "doctor: all files decrypt";; *) bad "doctor: $out";; esac
+case "$out" in *"protect-me"*|*"hunter2"*|*"fake-secret"*) bad "doctor leaked content";; *) ok "doctor prints no content";; esac
 
 echo; echo "passed=$pass failed=$failn"; [ $failn -eq 0 ]

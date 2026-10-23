@@ -1,5 +1,4 @@
-unlockfs
-unlockfs-test
+/unlockfs
+/unlockfs-test
 test/.run*
-.build/
 *.bundle
