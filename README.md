@@ -72,11 +72,24 @@ Follow the [AUR submission guidelines](https://wiki.archlinux.org/title/AUR_subm
 
 ```sh
 # Debian/Ubuntu: sudo apt install libfuse-dev fuse libsecret-tools fprintd golang make
+# Fedora:        sudo dnf install fuse-devel fuse libsecret fprintd golang make
 make && sudo install -m755 unlockfs /usr/local/bin/
 install -Dm644 packaging/systemd/unlockfs.service ~/.config/systemd/user/unlockfs.service
 systemctl --user enable --now unlockfs.service
 ```
 cgofuse needs the libfuse 2 headers (`/usr/include/fuse`); distributions that ship only libfuse 3 need the fuse2 development package.
+
+### Prebuilt binaries
+
+Tagged releases (`v*`) get tarballs for macOS arm64, macOS Intel and Linux amd64 built by [`release.yml`](.github/workflows/release.yml), with SHA-256 files. You still need FUSE-T (macOS) or libfuse 2 (Linux) installed, because the library is loaded at run time. The macOS binaries are ad-hoc signed, not notarized: if Gatekeeper blocks a browser download, run `xattr -d com.apple.quarantine unlockfs`.
+
+## Team setup
+
+- Each person has their own store and key; nothing is shared. Secrets come from your normal source (vault, password manager); `unlockfs protect` only changes how they sit on your disk.
+- Macs without Touch ID (desktops, closed-lid docked laptops) get the password prompt instead. Linux without a fingerprint reader: set `UNLOCKFS_PROMPT_CMD` to any approval command (exit 0 = approved), for example a PAM or polkit check.
+- Everyone builds with their own Go toolchain, or uses the release tarballs. Signing with your own Apple Development identity avoids repeated keychain prompts after rebuilds.
+- `unlockfs doctor` is the first thing to run when something looks wrong.
+- Git-tracked config files (shared local defaults) are deliberately left alone, so repositories behave exactly as before for people who do not use unlockfs.
 
 ## Use
 
